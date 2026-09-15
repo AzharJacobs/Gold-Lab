@@ -1,18 +1,18 @@
 """
-Playbook A: 4H market structure + 15M entry confirmation.
+Playbook A (H1/M5 variant): H1 market structure + M5 entry confirmation.
 
-Structure (4H):
+Structure (H1):
     Swing highs/lows are fractals, 5 bars each side, confirmed only once
     those 5 confirming bars have closed.
-    Bullish BOS = a 4H candle closes above the prior confirmed swing high.
-    Bearish BOS = a 4H candle closes below the prior confirmed swing low.
+    Bullish BOS = an H1 candle closes above the prior confirmed swing high.
+    Bearish BOS = an H1 candle closes below the prior confirmed swing low.
     Wicks don't count -- only the close.
     After a bullish BOS: strong swing low = the lowest low between the
     prior swing low and the BOS candle. Weak swing high = the next
     confirmed swing high that forms after the BOS (the peak reached
     before the retracement). Bearish is the mirror.
 
-Zone (4H):
+Zone (H1):
     After a BOS, the impulse leg runs from the strong swing point to the
     BOS candle. Walking forward from the strong swing point, the impulse
     is judged to begin at the first candle whose body (abs(close-open))
@@ -24,20 +24,21 @@ Zone (4H):
     zone is the range of the strong swing point through the next 2
     candles.
 
-Entry (15M):
-    Wait for price to retrace into the 4H zone, then require a 15M BOS
-    in the 4H direction -- a 15M candle closing beyond the most recent
-    confirmed 15M swing point. Enter at that candle's close.
-    Stop: beyond the 15M strong swing point that formed inside the zone
-    (the extreme 15M low/high reached while price was inside the zone).
-    Target: the 4H weak swing high (bullish) or weak swing low (bearish).
-    Timeout: exit after 96 M15 bars if neither stop nor target is hit.
+Entry (M5):
+    Wait for price to retrace into the H1 zone, then require an M5 BOS
+    in the H1 direction -- an M5 candle closing beyond the most recent
+    confirmed M5 swing point. Enter at that candle's close.
+    Stop: beyond the M5 strong swing point that formed inside the zone
+    (the extreme M5 low/high reached while price was inside the zone).
+    Target: the H1 weak swing high (bullish) or weak swing low (bearish).
+    Timeout: exit after 288 M5 bars if neither stop nor target is hit
+    (the same 24-hour wall-clock duration as 96 M15 bars).
     One trade per zone. A zone dies (no longer tradeable) the moment
     price closes through its strong swing point without having triggered
     an entry.
 
 No look-ahead: a swing only exists once its 5 confirming bars have
-closed, a zone only exists once its 4H BOS candle has closed, and a
+closed, a zone only exists once its H1 BOS candle has closed, and a
 zone's target is only usable once the weak swing that defines it has
 itself confirmed.
 
@@ -48,7 +49,7 @@ bars and returns a list of signals. Nothing else.
 import bisect
 
 FRACTAL_WING = 5
-ENTRY_TIMEOUT_M15_BARS = 96
+ENTRY_TIMEOUT_M5_BARS = 288
 
 
 def _next_fractal_after(fractals, idx):
@@ -103,7 +104,7 @@ def _consolidation_range_before_impulse(bars, strong_idx, bos_idx):
 
 def _find_fractals(bars):
     """
-    Locate confirmed fractal swing highs/lows in a 4H or 15M bar series.
+    Locate confirmed fractal swing highs/lows in an H1 or M5 bar series.
 
     A bar at index c is a swing high if its high is strictly greater than
     the highs of the FRACTAL_WING bars on each side of it; a swing low is
@@ -135,7 +136,7 @@ def _find_fractals(bars):
 
 def _detect_bos_events(bars, highs, lows):
     """
-    Walk a 4H bar series and detect break-of-structure events.
+    Walk an H1 bar series and detect break-of-structure events.
 
     At each bar, the most recently confirmed swing high/low becomes the
     active reference. A bullish BOS fires the first time a candle closes
@@ -145,7 +146,7 @@ def _detect_bos_events(bars, highs, lows):
     new reference must confirm before the next BOS on that side.
 
     Args:
-        bars: 4H OHLC DataFrame sorted ascending by time.
+        bars: H1 OHLC DataFrame sorted ascending by time.
         highs, lows: fractal lists from _find_fractals(bars).
 
     Returns:
@@ -191,11 +192,11 @@ def _detect_bos_events(bars, highs, lows):
 
 def _build_zone(event, bars, highs, lows):
     """
-    Turn a BOS event into a tradeable 4H zone, per the Zone/Structure rules.
+    Turn a BOS event into a tradeable H1 zone, per the Zone/Structure rules.
 
     Args:
         event: one event dict from _detect_bos_events.
-        bars: the same 4H OHLC DataFrame.
+        bars: the same H1 OHLC DataFrame.
         highs, lows: fractal lists from _find_fractals(bars).
 
     Returns:
@@ -264,32 +265,32 @@ def _build_zone(event, bars, highs, lows):
         }
 
 
-def _monitor_zone(zone, m15, m15_highs, m15_lows):
+def _monitor_zone(zone, m5, m5_highs, m5_lows):
     """
-    Watch 15M bars after a zone forms for the entry trigger, per Entry.
+    Watch M5 bars after a zone forms for the entry trigger, per Entry.
 
-    Steps, in order, bar by bar starting after the zone's 4H BOS candle
-    closes: check invalidation (a 15M close through the zone's
+    Steps, in order, bar by bar starting after the zone's H1 BOS candle
+    closes: check invalidation (an M5 close through the zone's
     strong_price kills the zone), check for the first retracement touch
-    into the zone, then -- once touched -- check for a 15M BOS beyond the
-    most recent confirmed 15M swing point in the zone's direction, with
+    into the zone, then -- once touched -- check for an M5 BOS beyond the
+    most recent confirmed M5 swing point in the zone's direction, with
     the target already confirmed. The first qualifying bar is the entry.
 
     Args:
         zone: a zone dict from _build_zone.
-        m15: 15M OHLC DataFrame sorted ascending by time.
-        m15_highs, m15_lows: fractal lists from _find_fractals(m15).
+        m5: M5 OHLC DataFrame sorted ascending by time.
+        m5_highs, m5_lows: fractal lists from _find_fractals(m5).
 
     Returns:
         A signal dict {time, direction, entry, stop, target,
         timeout_bars}, or None if the zone is invalidated or never
         triggers before the data ends.
     """
-    time = m15["time"]
-    low = m15["low"].to_numpy()
-    high = m15["high"].to_numpy()
-    close = m15["close"].to_numpy()
-    n = len(m15)
+    time = m5["time"]
+    low = m5["low"].to_numpy()
+    high = m5["high"].to_numpy()
+    close = m5["close"].to_numpy()
+    n = len(m5)
 
     start_pos = int(time.searchsorted(zone["bos_time"], side="right"))
 
@@ -299,11 +300,11 @@ def _monitor_zone(zone, m15, m15_highs, m15_lows):
     active_high = active_low = None
 
     for i in range(start_pos, n):
-        while hi_ptr < len(m15_highs) and m15_highs[hi_ptr]["confirm"] <= i:
-            active_high = m15_highs[hi_ptr]
+        while hi_ptr < len(m5_highs) and m5_highs[hi_ptr]["confirm"] <= i:
+            active_high = m5_highs[hi_ptr]
             hi_ptr += 1
-        while lo_ptr < len(m15_lows) and m15_lows[lo_ptr]["confirm"] <= i:
-            active_low = m15_lows[lo_ptr]
+        while lo_ptr < len(m5_lows) and m5_lows[lo_ptr]["confirm"] <= i:
+            active_low = m5_lows[lo_ptr]
             lo_ptr += 1
 
         if zone["direction"] == "long" and close[i] < zone["strong_price"]:
@@ -331,7 +332,7 @@ def _monitor_zone(zone, m15, m15_highs, m15_lows):
                     "entry": float(close[i]),
                     "stop": stop,
                     "target": zone["target_price"],
-                    "timeout_bars": ENTRY_TIMEOUT_M15_BARS,
+                    "timeout_bars": ENTRY_TIMEOUT_M5_BARS,
                 }
         else:
             if (
@@ -346,7 +347,7 @@ def _monitor_zone(zone, m15, m15_highs, m15_lows):
                     "entry": float(close[i]),
                     "stop": stop,
                     "target": zone["target_price"],
-                    "timeout_bars": ENTRY_TIMEOUT_M15_BARS,
+                    "timeout_bars": ENTRY_TIMEOUT_M5_BARS,
                 }
 
     return None
@@ -359,20 +360,20 @@ def _generate_candidates(bars):
     corrections applied in generate_signals, paired with the bos_idx of
     the zone that produced it (used to break same-bar ties).
     """
-    h4 = bars["H4"].reset_index(drop=True)
-    m15 = bars["M15"].reset_index(drop=True)
+    h1 = bars["H1"].reset_index(drop=True)
+    m5 = bars["M5"].reset_index(drop=True)
 
-    h4_highs, h4_lows = _find_fractals(h4)
-    m15_highs, m15_lows = _find_fractals(m15)
+    h1_highs, h1_lows = _find_fractals(h1)
+    m5_highs, m5_lows = _find_fractals(m5)
 
-    events = _detect_bos_events(h4, h4_highs, h4_lows)
+    events = _detect_bos_events(h1, h1_highs, h1_lows)
 
     candidates = []
     for event in events:
-        zone = _build_zone(event, h4, h4_highs, h4_lows)
+        zone = _build_zone(event, h1, h1_highs, h1_lows)
         if zone is None:
             continue
-        signal = _monitor_zone(zone, m15, m15_highs, m15_lows)
+        signal = _monitor_zone(zone, m5, m5_highs, m5_lows)
         if signal is not None:
             candidates.append((signal, zone["bos_idx"]))
 
@@ -395,8 +396,8 @@ def _has_valid_target(signal):
 def _drop_same_bar_duplicates(candidates):
     """
     Only one position is held at a time: if multiple pending zones
-    trigger their entry on the same M15 bar, keep the signal from the
-    zone whose 4H BOS was most recent and drop the rest.
+    trigger their entry on the same M5 bar, keep the signal from the
+    zone whose H1 BOS was most recent and drop the rest.
     """
     by_bar = {}
     for signal, bos_idx in candidates:
@@ -408,23 +409,24 @@ def _drop_same_bar_duplicates(candidates):
 
 def generate_signals(bars):
     """
-    Playbook A entry point. Takes bars, returns a list of signals.
+    Playbook A (H1/M5 variant) entry point. Takes bars, returns a list of
+    signals.
 
     Two corrections are applied to the raw triggered signals: a signal
     whose target is on the wrong side of entry is dropped (not moved,
     not substituted), and when more than one signal fires on the same
-    M15 bar, only the one from the most recently broken 4H structure is
+    M5 bar, only the one from the most recently broken H1 structure is
     kept.
 
     Args:
-        bars: dict with keys "H4" and "M15", each an OHLC DataFrame
+        bars: dict with keys "H1" and "M5", each an OHLC DataFrame
             (columns: time, open, high, low, close) sorted ascending by
             time, closed bars only.
 
     Returns:
         List of signal dicts {time, direction, entry, stop, target,
         timeout_bars}, sorted ascending by time. At most one signal per
-        zone, and at most one signal per M15 bar.
+        zone, and at most one signal per M5 bar.
     """
     candidates = _generate_candidates(bars)
     candidates = [(s, b) for s, b in candidates if _has_valid_target(s)]

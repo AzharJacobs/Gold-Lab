@@ -1,5 +1,5 @@
 """
-Pull M15/H1/H4/D1 bars from MT5 and cache them to data/cache/*.pkl.
+Pull M5/M15/H1/H4/D1 bars from MT5 and cache them to data/cache/*.pkl.
 
 Rules:
 - Closed bars only. Never include the currently-forming bar.
@@ -17,24 +17,29 @@ from pathlib import Path
 
 import pandas as pd
 
-TIMEFRAMES = ["M15", "H1", "H4", "D1"]
+TIMEFRAMES = ["M5", "M15", "H1", "H4", "D1"]
 
 CACHE_DIR = Path(__file__).parent / "cache"
 
 _TIMEFRAME_DELTA = {
+    "M5": timedelta(minutes=5),
     "M15": timedelta(minutes=15),
     "H1": timedelta(hours=1),
     "H4": timedelta(hours=4),
     "D1": timedelta(days=1),
 }
 
-# Per-call history requests are capped by the terminal (~100k bars), so
-# long ranges are fetched in yearly chunks and concatenated.
-_CHUNK = timedelta(days=365)
+# Per-call history requests are capped by the terminal based on the
+# requested span (independent of how much data actually exists in it) --
+# a 365-day M5 request alone exceeds it. Long ranges are fetched in
+# smaller chunks and concatenated; 90 days stays well under the cap even
+# for the densest timeframe (M5).
+_CHUNK = timedelta(days=90)
 
 
 def _mt5_timeframe(mt5, timeframe: str):
     return {
+        "M5": mt5.TIMEFRAME_M5,
         "M15": mt5.TIMEFRAME_M15,
         "H1": mt5.TIMEFRAME_H1,
         "H4": mt5.TIMEFRAME_H4,
