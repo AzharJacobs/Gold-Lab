@@ -8,7 +8,7 @@ assumed to have been hit first (conservative fill).
 from core.costs import apply_cost
 
 
-def simulate_trade(signal, bars):
+def simulate_trade(signal, bars, round_trip_cost=None):
     """
     Walk forward through bars from the signal's entry time and determine outcome.
 
@@ -20,6 +20,8 @@ def simulate_trade(signal, bars):
         bars: OHLC bars to walk forward through, sorted ascending by time,
             starting at or after signal["time"]. Must have columns
             {time, open, high, low, close}.
+        round_trip_cost: cost to apply. Defaults to the gold constant in
+            core.costs; pass an instrument-specific cost for other symbols.
 
     Returns:
         Outcome dict: {time, direction, entry, stop, target, exit_time,
@@ -72,7 +74,7 @@ def simulate_trade(signal, bars):
     else:
         gross = entry - exit_price
 
-    net = apply_cost(gross)
+    net = apply_cost(gross) if round_trip_cost is None else apply_cost(gross, round_trip_cost)
     r_multiple = (net / risk) if risk else 0.0
 
     return {
@@ -90,15 +92,16 @@ def simulate_trade(signal, bars):
     }
 
 
-def simulate_all(signals, bars):
+def simulate_all(signals, bars, round_trip_cost=None):
     """
     Run simulate_trade for each signal in signals against bars.
 
     Args:
         signals: list of signal dicts, see simulate_trade.
         bars: OHLC bars covering the full period spanned by signals.
+        round_trip_cost: cost to apply, see simulate_trade.
 
     Returns:
         List of outcome records, one per signal.
     """
-    return [simulate_trade(signal, bars) for signal in signals]
+    return [simulate_trade(signal, bars, round_trip_cost) for signal in signals]

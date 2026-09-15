@@ -1,0 +1,2 @@
+timestamp,signal_fired,direction,entry,stop,target,rr,lots,actual_risk_pct,floor_forced,skip_reason,exit_time,exit_price,result,gross,net,r_multiple
+2026-09-15T19:24:35.288441,False,,,,,,,,False,,,,,,,
