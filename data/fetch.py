@@ -17,13 +17,15 @@ from pathlib import Path
 
 import pandas as pd
 
-TIMEFRAMES = ["M5", "M15", "H1", "H4", "D1"]
+TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1"]
 
 CACHE_DIR = Path(__file__).parent / "cache"
 
 _TIMEFRAME_DELTA = {
+    "M1": timedelta(minutes=1),
     "M5": timedelta(minutes=5),
     "M15": timedelta(minutes=15),
+    "M30": timedelta(minutes=30),
     "H1": timedelta(hours=1),
     "H4": timedelta(hours=4),
     "D1": timedelta(days=1),
@@ -32,15 +34,18 @@ _TIMEFRAME_DELTA = {
 # Per-call history requests are capped by the terminal based on the
 # requested span (independent of how much data actually exists in it) --
 # a 365-day M5 request alone exceeds it. Long ranges are fetched in
-# smaller chunks and concatenated; 90 days stays well under the cap even
-# for the densest timeframe (M5).
+# smaller chunks and concatenated; 90 days stays well under the cap for
+# M5 and coarser. M1 is 5x denser, so it gets a smaller chunk.
 _CHUNK = timedelta(days=90)
+_CHUNK_M1 = timedelta(days=14)
 
 
 def _mt5_timeframe(mt5, timeframe: str):
     return {
+        "M1": mt5.TIMEFRAME_M1,
         "M5": mt5.TIMEFRAME_M5,
         "M15": mt5.TIMEFRAME_M15,
+        "M30": mt5.TIMEFRAME_M30,
         "H1": mt5.TIMEFRAME_H1,
         "H4": mt5.TIMEFRAME_H4,
         "D1": mt5.TIMEFRAME_D1,
@@ -80,10 +85,11 @@ def fetch(symbol: str, timeframe: str, start, end):
             raise RuntimeError(f"MT5 symbol_select failed for {symbol}: {mt5.last_error()}")
 
         mt5_tf = _mt5_timeframe(mt5, timeframe)
+        chunk_size = _CHUNK_M1 if timeframe == "M1" else _CHUNK
         chunks = []
         chunk_start = start
         while chunk_start < end:
-            chunk_end = min(chunk_start + _CHUNK, end)
+            chunk_end = min(chunk_start + chunk_size, end)
             rates = mt5.copy_rates_range(symbol, mt5_tf, chunk_start, chunk_end)
             if rates is not None and len(rates):
                 chunks.append(pd.DataFrame(rates))
